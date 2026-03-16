@@ -54,118 +54,151 @@ resultat:
 ```
 Le flag `X` nous indique que cette section contient du code exécutable, et l'addresse `0x1000` nous indique ou commence ce code, qui correspond à l'adresse d'entrée de l'exécutable.
 
+
+
 ## Etape 3: Affichage du code assembleur de cette section
 grace à l'outils `objdump` avec l'option `-d` permet d'afficher le code assembleur de cette section.
 ```bash
 objdump -d elf_hide .text
 ```
-En affichant le code assembleur ou trouver la fonction main à partir du point serais difficile  à code du format ELF32.
+En affichant le code assembleur pour trouver la fonction main à partir du point d'entrée du code exécutable, cela serait difficile  à code du format ELF32, car le code est embibé de notation `<main.c>`, en terme de l'isibilité du code assembleur, et aussi le code est optimisé, ce qui rend la lecture du code assembleur plus difficile.
 
-L'idée m'est venue d'utliser l'outil `gdb` pour faire du reverse engineering dynamique, et ainsi trouver la partie du code qui compare les deux chaines de caractères.
-
-### Etape 3.2.1: Lancement de gdb
-```bash
-gdb ./elf_hide
-```
-
-### Etape 3.2.2: lance la première instruction du code exécutable
-```bash
-starti
-```
-### Etape 3.2.3:  Trouver l'addresse de base du programme
-```bash
-info proc mappings
-```
-resultat:
-```
-Mapped address spaces:
-
-        Start Addr   End Addr       Size     Offset  Perms   objfile
-        0x56555000 0x56556000     0x1000        0x0  r--p   /home/jonuma/Documents/Master
-```
-Grace à cette commande, on peut trouver l'addresse de base du programme qui est `0x56555000`, et ainsi trouver l'addresse de la fonction main qui est `0x56555000 + 0x12a4 = 0x565562a4`.
-
-### Etape 3.2.4: Afficher le code assembleur de la fonction main à du point d'entrée du code exécutable
-
-déplacons le pointeur d'exécution à l'addresse de la fonction main, et affichons le code assembleur à partir de cette addresse.
-```bash
-break *0x565562a4
-continue
-x/20i rip
-```
-
-resultat:
-```
- 0x565562a7 <main.c>: push   %ebx
-   0x565562a8 <main.c>: push   %ecx
-   0x565562a9 <main.c>: call   0x56556150 <main.c>
-```
-maintenant on va sauter l'appel de la fonction main, et afficher le code assembleur à partir de l'addresse de la fonction main.
-```bash
-break *0x56556150
-continue
-x/20i rip
-```
-resultat:
-
-```
-(gdb) x/80i $eip
-=> 0x56556150 <main.c>: push   %ebp
-   0x56556151 <main.c>: mov    %esp,%ebp
-   0x56556153 <main.c>: push   %ebx
-   0x56556154 <main.c>: sub    $0x24,%esp
-   0x56556157 <main.c>: call   0x5655615c <main.c>
-   0x5655615c <main.c>: pop    %eax
-   0x5655615d <main.c>: add    $0x2ea4,%eax
-   0x56556163 <main.c>: mov    %eax,-0x20(%ebp)
-   0x56556166 <main.c>: mov    0xc(%ebp),%ecx
-   0x56556169 <main.c>: mov    0x8(%ebp),%ecx
-   0x5655616c <main.c>: movl   $0x0,-0x8(%ebp)
-   0x56556173 <main.c>: mov    -0x2000(%eax),%ecx
-   0x56556179 <main.c>: mov    %ecx,-0x15(%ebp)
-   0x5655617c <main.c>: mov    -0x1ffc(%eax),%ecx
-   0x56556182 <main.c>: mov    %ecx,-0x11(%ebp)
-   0x56556185 <main.c>: mov    -0x1ff8(%eax),%ecx
-   0x5655618b <main.c>: mov    %ecx,-0xd(%ebp)
-   0x5655618e <main.c>: mov    -0x1ff4(%eax),%al
-   0x56556194 <main.c>: mov    %al,-0x9(%ebp)
-   0x56556197 <main.c>: cmpl   $0x2,0x8(%ebp)
-....
-   
-```
-
-maintenant on a trouvé la partie du code qui compare les deux chaines de caractères, et on peut trouver la chaine de caractères recherchée en analysant le code assembleur de cette partie du code.
-
-J'ai trouvé le  code mais un problème se pose, la chiane compaée est stockée en mémoire à l'aide d'une addresse relative, mais cette addresse est calculée d`uatre qui n'est pas facile à trouver.
-
-Encore la solution viendra de l'outil `gdb`, qui nous permettra de trouver la valeur de cette addresse relative, et ainsi trouver la chaine de caractères recherchée.
-
-#### Etape 3.2.5: Trouver las chaines en fonction de l'addresse relative
-deplacons le pointeur juste avant l'affectation des variables en foncton de cette addresse.
+Grace à l'outil `strip` qui permet de supprimer les symboles de debug du fichier ELF, et ainsi rendre le code assembleur plus lisible.
 
 ```bash
-break *0x56556173
-continue
+strip  elf_hide
 ```
+Maintenant on peut afficher le code assembleur de cette section, et trouver la fonction main à partir du point d'entrée du code exécutable.
+
+## Étape 3.2: Trouver le main et la chaine de caractères recherchée
+
+### Etape 3.2.1: Analyse du point d'entrée du code exécutable
+
+Après avoir aleger le code assembleur de la section .text, on peut trouver le point d'entrée du code exécutable à l'adresse `0x12a4`, et trouver la fonction main à l'adresse `0x1150`.
+
+```bash
+    12a4:	59                   	pop    %ecx
+    12a5:	89 e3                	mov    %esp,%ebx
+    12a7:	53                   	push   %ebx
+    12a8:	51                   	push   %ecx
+    12a9:	e8 a2 fe ff ff       	call   0x1150
+    12ae:	89 c3                	mov    %eax,%ebx
+    12b0:	b8 01 00 00 00       	mov    $0x1,%eax
+    12b5:	cd 80                	int    $0x80
+```
+
+On ne peut pas affirmer que c'est la fonction main, mais on peut trouver la fonction qui compare les deux chaines de caractères, et trouver la chaine de caractères recherchée.
+
+## Deplacement vers l'adresse `0x1150` pour trouver la comparaison des deux chaines de caractères
+
+
+```bash
+    1150:	55                   	push   %ebp
+    1151:	89 e5                	mov    %esp,%ebp
+    1153:	53                   	push   %ebx
+    1154:	83 ec 24             	sub    $0x24,%esp
+    1157:	e8 00 00 00 00       	call   0x115c
+    115c:	58                   	pop    %eax
+    115d:	81 c0 a4 2e 00 00    	add    $0x2ea4,%eax
+    1163:	89 45 e0             	mov    %eax,-0x20(%ebp)
+    1166:	8b 4d 0c             	mov    0xc(%ebp),%ecx
+    1169:	8b 4d 08             	mov    0x8(%ebp),%ecx
+    116c:	c7 45 f8 00 00 00 00 	movl   $0x0,-0x8(%ebp)
+    1173:	8b 88 00 e0 ff ff    	mov    -0x2000(%eax),%ecx
+    1179:	89 4d eb             	mov    %ecx,-0x15(%ebp)
+    117c:	8b 88 04 e0 ff ff    	mov    -0x1ffc(%eax),%ecx
+    1182:	89 4d ef             	mov    %ecx,-0x11(%ebp)
+    1185:	8b 88 08 e0 ff ff    	mov    -0x1ff8(%eax),%ecx
+    118b:	89 4d f3             	mov    %ecx,-0xd(%ebp)
+    118e:	8a 80 0c e0 ff ff    	mov    -0x1ff4(%eax),%al
+    1194:	88 45 f7             	mov    %al,-0x9(%ebp)
+...
+```
+Ici on peut voir affectation sur le stack à l'adresse `-0xoffset(%ebp)` .
+Ici on ajoute des données sur le stack de manière desordonnée, Vu que le stack va vers le bas , l'adresse qui nous intéresse `-0x15(%ebp)` est la plus grande adresse, et les autres sont des adresses plus petites, ce qui nous indique que les données sont ajoutées de manière desordonnée sur le stack.
+
+Maintenant cherchons la source de ces données, et trouver la chaine de caractères recherchée.
+
+Ces données sont ajoutées à partir de l'addresse relative `-0x2000(%eax)`, `-0x1ffc(%eax)`, `-0x1ff8(%eax)`, `-0x1ff4(%eax)`.
+
+### Valeur de l'addresse pointée par eax
+
+Si on regarde ici
+```
+  1157:	e8 00 00 00 00       	call   0x115c
+    115c:	58                   	pop    %eax
+    115d:	81 c0 a4 2e 00 00    	add    $0x2ea4,%eax
+```
+
+On peut voir call `0x115c` va directement après le call, le call pousse cette adreese sur le stack avec `push 0x115c`.
+ Après le pop va  ajouté `0x115c` à `eax`,  et après l'addition de `0x2ea4` à `eax`, on va trouver l'addresse relative qui pointe vers les données que nous cherchons.
+
+Donc `eax` = `0x2ea4` + `0x115c` = `0x4000`
+
+Vu que `eax` pointe vers l'addresse `0x4000`, et que les données sont ajoutées à partir de l'addresse relative `-0x2000(%eax)`, `-0x1ffc(%eax)`, `-0x1ff8(%eax)`, `-0x1ff4(%eax)`, on peut trouver l'addresse absolue de ces données.
 
 #### Etape 3.2.6: Afficher la valeur de l'addresse relative
 
 ```bash
-(gdb) x/4bx $eax-0x2000
-0x56557000:     0x0b    0x31    0x76    0x23
-(gdb) x/4bx $eax-0x1ffc
-0x56557004:     0x21    0x62    0x23    0x66
-(gdb) x/4bx $eax-0x1ff8
-0x56557008:     0x2b    0x2f    0x72    0x34
-(gdb) x/4bx $eax-0x1ff4
-0x5655700c:     0x00    0x4e    0x65    0x65
+0x2000:     0x0b    0x31    0x76    0x23
+0x2004:     0x21    0x62    0x23    0x66
+0x2008:     0x2b    0x2f    0x72    0x34
+0x200c:     0x00    0x4e    0x65    0x65
 ```
 
 #### Etape 3.2.7: Trouver la chaine de caractères recherchée
 
+Comparaison que donne toujours le meme resultat, Obfuscation>
+
+```bash
+ 11c1:	8b 5d e0             	mov    -0x20(%ebp),%ebx
+    11c4:	8b 45 0c             	mov    0xc(%ebp),%eax
+    11c7:	8b 48 04             	mov    0x4(%eax),%ecx
+    11ca:	8d 83 30 e0 ff ff    	lea    -0x1fd0(%ebx),%eax
+    11d0:	89 0c 24             	mov    %ecx,(%esp)
+    11d3:	89 44 24 04          	mov    %eax,0x4(%esp)
+    11d7:	e8 64 fe ff ff       	call   0x1040
+    11dc:	83 f8 00             	cmp    $0x0,%eax
+    11df:	0f 85 20 00 00 00    	jne    0x1205
 ```
-0x5655620c <main.c>: mov    0xc(%ebp),%eax
+
+Si on calcule 0x4000-0x1fd0 = 0x2030, on trouve l'addresse de la chaine de caractères attendue qui un piege, pour nous dire `Nice try!` parce que c'est un piege tendu pour nous faire croire que la chaine de caractères recherchée est `Isaac Asimov`.
+
 ```
+ 2030 49736161 63204173 696d6f76 004e6963  Isaac Asimov.Nic
+ 2040 65207472 79210a00 476f6f64 20706173  e try!..Good pas
+```
+
+
+### Allons à l'adresse `0x1205` pour trouver la comparaison des deux chaines de caractères
+
+
+```bash
+1205:	c7 45 e4 00 00 00 00 	movl   $0x0,-0x1c(%ebp)
+    120c:	8b 45 0c             	mov    0xc(%ebp),%eax
+    120f:	8b 40 04             	mov    0x4(%eax),%eax
+    1212:	8b 4d e4             	mov    -0x1c(%ebp),%ecx
+    1215:	0f be 04 08          	movsbl (%eax,%ecx,1),%eax
+    1219:	83 f8 00             	cmp    $0x0,%eax
+    121c:	0f 84 31 00 00 00    	je     0x1253
+    1222:	8b 45 0c             	mov    0xc(%ebp),%eax
+    1225:	8b 40 04             	mov    0x4(%eax),%eax
+    1228:	8b 4d e4             	mov    -0x1c(%ebp),%ecx
+    122b:	0f be 04 08          	movsbl (%eax,%ecx,1),%eax
+    122f:	83 f0 42             	xor    $0x42,%eax
+    1232:	25 ff 00 00 00       	and    $0xff,%eax
+    1237:	88 c2                	mov    %al,%dl
+    1239:	8b 45 0c             	mov    0xc(%ebp),%eax
+    123c:	8b 40 04             	mov    0x4(%eax),%eax
+    123f:	8b 4d e4             	mov    -0x1c(%ebp),%ecx
+    1242:	88 14 08             	mov    %dl,(%eax,%ecx,1)
+    1245:	8b 45 e4             	mov    -0x1c(%ebp),%eax
+    1248:	83 c0 01             	add    $0x1,%eax
+    124b:	89 45 e4             	mov    %eax,-0x1c(%ebp)
+    124e:	e9 b9 ff ff ff       	jmp    0x120c
+```
+Ici on peut voir une iteration sur la chaine passée en argument, et une comparaison de chaque octet de cette chaine avec le caractère `\0`, si la comparaison est égale à 0, cela signifie que la fin de la chaine a été atteinte, sinon on applique un `xor 42` sur chaque octet de cette chaine, et on stocke le résultat dans la même adresse de la chaine passée en argument.
+
 
 Ici la chaine passée en argument a été irité , en aapliquant un `xor 42`, sur chaque octet de cette chaine.
 
