@@ -6,7 +6,7 @@ Méthode de résolution :
 Dans cette exercice on va utliser des logiciels reverse pour nous aider dans la résolution de ce challenge, et on va suivre les étapes suivantes:
 
 ## Etape 1: Analyse de l'entete du fichier
-grace à l'outils `type` on peut avoir des informations, domme quoi si le binaire a été strippé ou pas.
+grace à l'outils `file` on peut avoir des informations, domme quoi si le binaire a été strippé ou pas.
 ```bash
 jonuma@jonas-Bunt:~/Documents/Master1/S2/Cours/SDS/reverse_static$ file nodecomp
 nodecomp: ELF 64-bit LSB executable, x86-64, version 1 (GNU/Linux), statically linked, BuildID[sha1]=03a784cffe3b96bc328fadee409e8e4e56746aa8, for GNU/Linux 3.2.0, stripped
@@ -18,6 +18,7 @@ grace à l'outils `readelf` avec l'option `-h` permet d'afficher ces information
 ```bash
    Entry point address:               0x401550
 ```
+
 Maintenant on a une idéé globale sur le binaare, on va pousser l'étude plus loin pour trouver la clef avec les outils de reverse engineering.
 
 ## Etape 2: Analyse du code avec Ghidra
@@ -102,6 +103,62 @@ Cette fonction c'est une obfuscation, elle ne fait rien le reste de code après 
 
 #### Etape 2.2.2 Analyse de la fonction `FUN_004017a0()`
 
+##### 2.2.2.1 Description
+
+La fonction `FUN_004017a0` effectue une **vérification d’intégrité du binaire en cours d’exécution**.
+Elle lit les premiers octets du fichier exécutable (`/proc/self/exe`) afin de vérifier s'il s'agit bien d'un fichier au format ELF (Executable and Linkable Format).
+
+## 2.2.2.2 Fonctionnement 
+
+### 1. Ouverture du binaire courant
+
+```c
+local_c = FUN_00450030("/proc/self/exe",0);
+```
+
+Ouvre le fichier représentant l'exécutable courant via `/proc/self/exe` qui est un lien symbolique vers le programme en cours d'exécution.
+ `FUN_00450030` agit probablement comme un `open()`.
+
+
+```c
+FUN_00450160(local_c,&local_10,4);
+```
+
+Ici il lit les 4 premiers octets du fichier, ces octets correspondent au magic number ELF.
+
+##### 2.2.2.3 Vérification du header ELF
+
+```c
+if ((((local_10 != '\x7f') || (local_f != 'E')) || (local_e != 'L')) || (local_d != 'F'))
+```
+
+Un fichier ELF valide commence toujours par :
+
+```
+0x7F 'E' 'L' 'F'
+```
+ Si les octets ne correspondent pas alors le fichier n’est pas reconnu comme ELF valide.
+
+### 4. Réaction en cas d’échec
+
+```c
+_SUB_00000000 = &DAT_00499024;
+```
+
+ Si la vérification échoue alors une varaible global (`_SUB_00000000`) est modifiée.
+Il est redirigé vers une autre zone mémoire (`DAT_00499024`).
+Cela peut servir à :
+  * Modifier le comportement du programme
+  * Désactiver certaines fonctionnalités
+
+##### Conclusion
+
+Cette fonction est une **vérification d’intégrité simple mais classique** :
+
+* Elle confirme que le programme est bien un ELF valide
+
+Son impact est juste au niveau de la protection, cela ne change pas le fonctionnnement normal du programme.
+---
 
 
 #### Etape 2.2.3 Analyse de la fonction `FUN_00401c60()`
@@ -305,6 +362,98 @@ Ce qui est equivalent à parcourir la chaîne jusqu’au caractère nul.
 
 ##### 4.3 Corps de la boucle
 
+```C
+  while (**(char **)(unaff_RBP + -0x10) != '\0') {
+    **(byte **)(unaff_RBP + -0x28) =
+         **(byte **)(unaff_RBP + -0x10) ^
+         *(byte *)(unaff_RBP + -0x14 + (long)*(int *)(unaff_RBP + -0x1c));
+    FUN_00454db0(FUN_00401690,0);
+    *(long *)(unaff_RBP + -0x10) = *(long *)(unaff_RBP + -0x10) + 1;
+    *(long *)(unaff_RBP + -0x28) = *(long *)(unaff_RBP + -0x28) + 1;
+    *(int *)(unaff_RBP + -0x1c) = (*(int *)(unaff_RBP + -0x1c) + 1) % 4;
+  }
 ```
 
+En regardant le code décompilé de la boucle, on peut voir ici l'alogorithme de chiffrement qui est utilisé pour chiffrer la clé passée en argument, et c'est à partir de cet algorithme que je vais trouver la clé.
+
 ```
+**(byte **)(unaff_RBP + -0x28) = **(byte **)(unaff_RBP + -0x10) ^ *(byte *)(unaff_RBP + -0x14 + (long)*(int *)(unaff_RBP + -0x1c));
+```
+
+Que l'on pourrait résumer par la boucle suivante:
+```C
+for (int i = 0; argv[1][i] != '\0'; i++) {
+    encrypted_key[i] = argv[1][i] ^ key[i % 4];
+}
+```
+
+Et la clé de chiffrement qui a été est celle ci:
+```c
+cle_chiffre = [0x42, 0x23, 0xFF, 0xCC];
+```
+
+##### 5. Après la boucle
+
+```
+                             LAB_00401a0c                                    XREF[1]:     004019fb(*)  
+        00401a0c 48 8b 45 d8     MOV        RAX,qword ptr [RBP + -0x28]
+        00401a10 48 63 55 e8     MOVSXD     RDX,dword ptr [RBP + -0x18]
+        00401a14 31 c9           XOR        ECX,ECX
+        00401a16 48 29 d1        SUB        RCX,RDX
+        00401a19 48 01 c8        ADD        RAX,RCX
+        00401a1c 48 83 c4 28     ADD        RSP,0x28
+        00401a20 5b              POP        RBX
+        00401a21 5d              POP        RBP
+        00401a22 c3              RET
+```
+
+Ici il y a beaucoup d'obfuscation, comme :
+```
+        00401a14 31 c9           XOR        ECX,ECX
+        00401a16 48 29 d1        SUB        RCX,RDX
+```
+Qui auront des valeurs nulles, et qui ne feront rien, et d'autres instructions qui font que le résultat final de cette fonction est de retourner l'adresse de la clé chiffrée.
+
+au final l'adresse de la clé chiffrée est celle qui est pointé par `RAX` à la fin de la fonction, et cette adresse est celle de `local_28` qui contient la clé chiffrée.
+
+## Etape 3: Trouver le code chiffré
+Maintenant revenons à la fonction `main`, après l'appel de la fonction `FUN_00401910` qui retourne l'adresse de la clé chiffrée, cette adresse est sauvegardé dans `uVar2`, et ensuite cette adresse est passé en argument à la fonction `FUN_00401fc0` qui compare la clé chiffrée avec une clé de référence, et si les deux clés sont égales le programme affiche "Well done", sinon il affiche "Try again".
+
+### Analyse de la fonction `FUN_00401fc0` qui compare la clé chiffrée avec la clé de référence.
+
+Après analyse de cette fonction, j'ai pu percevoir encore de l'obfuscation en permuttant les arguments de la fonction avec plusieurs fonctions imbriquées.
+
+Mais j'ai pu constaté que le nombre de fois que `arg1` et `arg2` ont été permuté est un nombre pair, ce qui fait que à la fin le résultat de la fonction est de comparer `arg1` avec `arg2`, et c'est à partir de cette comparaison que je vais trouver la clé de référence.
+
+Donc nous allons analyser la dernière fonction imbriquée qui compare les deux clés, et qui retourne 0 si les deux clés sont égales, et un nombre différent de 0 sinon.
+
+### Analyse de la fonction de comparaison des clés `FUN_00401820(param_1,param_2)`
+
+En analysant le code de ctte fonction elle contient beaucoup d'obfuscation, mais le résultat final de cette fonction est de comparer les deux clés, et de retourner 0 si les deux clés sont égales, et un nombre différent de 0 sinon.
+
+### Recherche de la clé de référence
+Maintenant que nous avons trouvé l'algorithme de chiffrement, et que nous avons trouvé que la fonction de comparaison des clés compare la clé chiffrée avec une clé de référence, il nous reste à trouver la clé de référence pour pouvoir trouver la clé d'entrée qui est le mot de passe à trouver.
+
+La clé de référence est stockée à l'adresse `&DAT_0049903c`.
+```
+                             DAT_0049903c                                    XREF[1]:     main:00401a90(*)  
+        0049903c 0a              ??         0Ah
+        0049903d 42              ??         42h    B
+        0049903e cd              ??         CDh
+        0049903f fe              ??         FEh
+        00499040 1b              ??         1Bh
+        00499041 7c              ??         7Ch    |
+        00499042 b7              ??         B7h
+        00499043 f8              ??         F8h
+        00499044 30              ??         30h    0
+        00499045 71              ??         71h    q
+        00499046 ce              ??         CEh
+        00499047 bf              ??         BFh
+        00499048 72              ??         72h    r
+        00499049 4d              ??         4Dh    M
+        0049904a 00              ??         00h
+```
+
+En inversant l'algorithme de chiffrement, et en utilisant la clé de chiffrement que nous avons trouvé précédement, on trouve que la clé de référence est "Ha22Y_H4rR1s0n".
+
+

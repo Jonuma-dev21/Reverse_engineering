@@ -107,5 +107,36 @@ j'ai trouvé que cette adresse est modifiée à l'adresse `0x401f5a` pour être 
 
 ### Etape 3: Analyse de la fonction qui modifie l'adresse `0x0052b92c`
 
+Voici un extrait du code de la fonction qui modifie l'adresse `0x0052b92c`:
+
+```
+fcn.00401d00();
+0x00401d00      push    rbp
+0x00401d01      mov     rbp, rsp
+0x00401d04      lea     rdi, [data.0052b910] ; 0x52b910 ; int64_t arg1
+0x00401d0b      mov     esi, 0x68  ; 'h' ; 104
+0x00401d10      call    fcn.00401c90 ; fcn.00401c90
+0x00401d15      lea     rcx, [data.0052b910] ; 0x52b910
+0x00401d1c      sub     rax, rcx
+0x00401d1f      cmp     rax, 6     ; 6
+0x00401d23      je      0x401d2e
+0x00401d29      jmp     0x401f64
+0x00401d2e      lea     rdi, [data.0052b910] ; 0x52b910 ; int64_t arg1
+0x00401d35      mov     esi, 0x65  ; 'e' ; 101
+0x00401d3a      call    fcn.00401c90 ; fcn.00401c90
+0x00401d3f      lea     rcx, [data.0052b910] ; 0x52b910
+0x00401d46      sub     rax, rcx
+0x00401d49      cmp     rax, 7     ; 7
+...
+```
+
+En suivant le bout de ce code qui se repète plusieurs fois, on peut voir la logique.
+
+La fonction regarde si un caractère se trouve à une position spécifique dans une chaîne de caractères `data.0052b910` , et si ce caractère correspond à une lettre spécifique, alors le programme continue à vérifier les autres caractères, sinon il saute à l'adresse `0x401f64` qui est la fin de la fonction.
 
 
+En analysant les caractères vérifiés dans cette fonction, j'ai trouvé que les caractères vérifiés sont 'F', 'r', 'a', 'n', 'K', ' ', 'h', 'e', 'r', '8', '3', 'R', '7' , et si tous ces caractères sont présents à leurs positions respectives dans la chaîne de caractères `data.0052b910`, alors le programme modifie l'adresse `0x0052b92c` pour être égal à 1, ce qui permet d'afficher le message spécial pour l'invité spécial.
+
+### Conclusion
+En analysant le code de la fonction qui modifie l'adresse `0x0052b92c`, j'ai trouvé que les caractères vérifiés sont 'F', 'r', 'a', 'n', 'K', ' ', 'h', 'e', 'r', '8', '3', 'R', '7' , et si tous ces caractères sont présents à leurs positions respectives dans la chaîne de caractères `data.0052b910`, alors le programme modifie l'adresse `0x0052b92c` pour être égal à 1, ce qui permet d'afficher le message spécial pour l'invité spécial.
+Donc le mot de passe à trouver pour être l'invité spécial est "FranK her83R7".
