@@ -1,4 +1,4 @@
-Exercice : Step 1/4 Botnet
+Exercice : Step 2/4 Botnet
 
 Mot de passe à trouve : "telnet"
 
