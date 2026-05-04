@@ -1,4 +1,4 @@
-Exercice : Step 1/4 Botnet
+Exercice : Step 3/4 Botnet
 
 Mot de passe à trouve : "helanhaiya.999apk.top:56999"
 
